@@ -15,9 +15,8 @@ This tool runs entirely on the client-side using JavaScript, meaning your files 
 ## 🚀 How to Use
 
 ### Hosted Version
-*(If you are using GitHub Pages, replace the link below with your actual URL)*
 
-[Click here to use the live previewer](#)
+[Click here to use the live previewer](https://hehbveh.github.io/Boot-Animation-Previewer/)
 
 ### Local Usage
 1.  Download the `index.html` (or `boot_preview.html`) file from this repository.
