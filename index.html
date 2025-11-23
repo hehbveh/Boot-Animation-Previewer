@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android Boot Animation Previewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        /* Custom scrollbar for the log */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; 
+        }
+
+        .phone-frame {
+            box-shadow: 0 0 0 10px #111, 0 0 30px rgba(0,0,0,0.5);
+            border-radius: 2rem;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        /* Camera notch simulation */
+        .phone-frame::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 20px;
+            background: #111;
+            border-radius: 0 0 10px 10px;
+            z-index: 20;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col md:flex-row p-4 gap-6 font-sans">
+
+    <!-- Left Panel: Controls & Info -->
+    <div class="flex-1 flex flex-col gap-6 max-w-xl mx-auto md:mx-0 w-full">
+        
+        <div class="bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700">
+            <h1 class="text-2xl font-bold mb-2 text-green-400">Boot Animation Previewer</h1>
+            <p class="text-gray-400 text-sm mb-6">Select a valid <code class="bg-gray-700 px-1 rounded">bootanimation.zip</code> to parse and play.</p>
+
+            <!-- File Input -->
+            <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer bg-gray-700 hover:bg-gray-600 transition-colors relative overflow-hidden group">
+                <div class="flex flex-col items-center justify-center pt-5 pb-6 relative z-10">
+                    <svg class="w-8 h-8 mb-4 text-gray-400 group-hover:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                    </svg>
+                    <p class="mb-2 text-sm text-gray-400"><span class="font-semibold">Click to upload</span> or drag and drop</p>
+                    <p class="text-xs text-gray-500">bootanimation.zip</p>
+                </div>
+                <input id="fileInput" type="file" class="hidden" accept=".zip" />
+            </label>
+        </div>
+
+        <!-- Meta Info -->
+        <div id="metaPanel" class="bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-700 hidden">
+            <h2 class="text-lg font-semibold mb-4 text-white flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span> Details
+            </h2>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-400 block">Resolution</span>
+                    <span id="resDisplay" class="font-mono text-green-300">---</span>
+                </div>
+                <div>
+                    <span class="text-gray-400 block">Frame Rate</span>
+                    <span id="fpsDisplay" class="font-mono text-green-300">---</span>
+                </div>
+                <div class="col-span-2">
+                    <span class="text-gray-400 block">Structure</span>
+                    <div id="partsDisplay" class="font-mono text-xs text-gray-300 bg-gray-900 p-2 rounded mt-1 max-h-24 overflow-y-auto">
+                        Waiting for file...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="bg-gray-800 p-4 rounded-2xl shadow-lg border border-gray-700 flex justify-center gap-4">
+            <button id="btnPlay" class="p-3 bg-green-600 hover:bg-green-500 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </button>
+            <button id="btnPause" class="p-3 bg-yellow-600 hover:bg-yellow-500 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+            </button>
+            <button id="btnReset" class="p-3 bg-red-600 hover:bg-red-500 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74-2.74L3 12"></path><path d="M3 3v9h9"></path></svg>
+            </button>
+        </div>
+
+        <!-- Logs -->
+        <div id="logContainer" class="bg-black p-4 rounded-lg font-mono text-xs text-gray-400 h-32 overflow-y-auto border border-gray-800">
+            <div>> System ready...</div>
+        </div>
+
+    </div>
+
+    <!-- Right Panel: Preview -->
+    <div class="flex-1 flex items-center justify-center bg-gray-800/50 rounded-3xl border border-gray-700/50 backdrop-blur-sm p-8">
+        
+        <!-- Phone Mockup -->
+        <div class="phone-frame aspect-[9/19.5] h-[80vh] w-auto max-w-full relative flex items-center justify-center bg-black">
+            
+            <!-- Canvas for Animation -->
+            <canvas id="bootCanvas"></canvas>
+
+            <!-- Loading Spinner Overlay -->
+            <div id="loadingOverlay" class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-10 hidden">
+                <div class="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <span id="loadingText" class="text-sm text-green-400 animate-pulse">Processing...</span>
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-2 opacity-50"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                <span class="text-xs">No Animation Loaded</span>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const fileInput = document.getElementById('fileInput');
+        const logContainer = document.getElementById('logContainer');
+        const canvas = document.getElementById('bootCanvas');
+        const ctx = canvas.getContext('2d');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const emptyState = document.getElementById('emptyState');
+        const resDisplay = document.getElementById('resDisplay');
+        const fpsDisplay = document.getElementById('fpsDisplay');
+        const partsDisplay = document.getElementById('partsDisplay');
+        const metaPanel = document.getElementById('metaPanel');
+
+        // Buttons
+        const btnPlay = document.getElementById('btnPlay');
+        const btnPause = document.getElementById('btnPause');
+        const btnReset = document.getElementById('btnReset');
+
+        // State
+        let animationConfig = {
+            width: 0,
+            height: 0,
+            fps: 30,
+            parts: [] 
+            // Part structure: { type: 'p'|'c', count: number, pause: number, path: string, images: [ImageBitmap] }
+        };
+
+        let isPlaying = false;
+        let currentPartIndex = 0;
+        let currentFrameIndex = 0;
+        let currentLoopCount = 0;
+        let pauseCounter = 0; // Counts frames during a pause
+        let lastFrameTime = 0;
+        let animationFrameId = null;
+
+        // Logging Utility
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.textContent = `> ${msg}`;
+            if(type === 'error') div.className = 'text-red-400';
+            else if(type === 'success') div.className = 'text-green-400';
+            logContainer.appendChild(div);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // File Input Handler
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            resetPlayer();
+            setLoading(true, "Reading ZIP...");
+            log(`Loading file: ${file.name}`);
+
+            try {
+                const zip = await JSZip.loadAsync(file);
+                
+                // 1. Find and Parse desc.txt
+                const descFile = zip.file("desc.txt");
+                if (!descFile) throw new Error("desc.txt not found in archive.");
+
+                const descText = await descFile.async("string");
+                parseDescTxt(descText);
+
+                // 2. Load Images
+                await loadImages(zip);
+
+                // 3. Ready
+                log("Animation loaded successfully!", 'success');
+                setLoading(false);
+                emptyState.classList.add('hidden');
+                metaPanel.classList.remove('hidden');
+                enableControls(true);
+                
+                // Fit canvas
+                canvas.width = animationConfig.width;
+                canvas.height = animationConfig.height;
+
+                // Start
+                startAnimation();
+
+            } catch (err) {
+                log(err.message, 'error');
+                console.error(err);
+                setLoading(false);
+                alert("Error: " + err.message);
+            }
+        });
+
+        // Parse desc.txt
+        function parseDescTxt(text) {
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'));
+            
+            // First line: Width Height FPS
+            const header = lines[0].split(/\s+/);
+            animationConfig.width = parseInt(header[0]);
+            animationConfig.height = parseInt(header[1]);
+            animationConfig.fps = parseInt(header[2]);
+
+            resDisplay.textContent = `${animationConfig.width}x${animationConfig.height}`;
+            fpsDisplay.textContent = `${animationConfig.fps} FPS`;
+
+            animationConfig.parts = [];
+            let partsHtml = "";
+
+            // Subsequent lines: type count pause path [hex [clock]]
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split(/\s+/);
+                // Valid line usually: p 1 0 part0
+                if (parts.length >= 4) {
+                    const type = parts[0];
+                    const count = parseInt(parts[1]);
+                    const pause = parseInt(parts[2]);
+                    const path = parts[3]; // folder name
+                    
+                    animationConfig.parts.push({
+                        type,
+                        count,
+                        pause,
+                        path,
+                        images: [] // To be filled
+                    });
+
+                    partsHtml += `<div>[${type}] Loop: ${count}, Pause: ${pause}, Folder: ${path}</div>`;
+                }
+            }
+            partsDisplay.innerHTML = partsHtml;
+            log(`Parsed configuration: ${animationConfig.width}x${animationConfig.height} @ ${animationConfig.fps}fps`);
+        }
+
+        // Load Images from ZIP folders
+        async function loadImages(zip) {
+            let totalImages = 0;
+            
+            // Count total files first for progress
+            for (const part of animationConfig.parts) {
+                const folder = zip.folder(part.path);
+                if (folder) {
+                    folder.forEach(() => totalImages++);
+                }
+            }
+
+            let loadedCount = 0;
+
+            for (const part of animationConfig.parts) {
+                const folder = zip.folder(part.path);
+                if (!folder) {
+                    log(`Warning: Folder '${part.path}' not found in ZIP`, 'error');
+                    continue;
+                }
+
+                const filePromises = [];
+                
+                // Gather files and sort them naturally (001, 002, 010)
+                const files = [];
+                folder.forEach((relativePath, file) => {
+                    if (relativePath.match(/\.(png|jpg|jpeg)$/i) && !relativePath.startsWith('__MACOSX') && !file.dir) {
+                        files.push(file);
+                    }
+                });
+
+                // Natural sort handles bootanimation naming conventions (0001.png, 0002.png)
+                files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+                for (const file of files) {
+                    const p = file.async('blob').then(async (blob) => {
+                        const bitmap = await createImageBitmap(blob);
+                        part.images.push(bitmap);
+                        loadedCount++;
+                        if (loadedCount % 10 === 0) {
+                             loadingText.textContent = `Loading images: ${Math.round((loadedCount / totalImages) * 100)}%`;
+                        }
+                    });
+                    filePromises.push(p);
+                }
+
+                await Promise.all(filePromises);
+                log(`Loaded ${part.images.length} frames for part '${part.path}'`);
+            }
+        }
+
+        // Animation Engine
+        function startAnimation() {
+            if (!animationFrameId) {
+                isPlaying = true;
+                lastFrameTime = performance.now();
+                requestAnimationFrame(loop);
+                updateButtons();
+            }
+        }
+
+        function stopAnimation() {
+            isPlaying = false;
+            updateButtons();
+        }
+
+        function resetPlayer() {
+            stopAnimation();
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Reset state
+            currentPartIndex = 0;
+            currentFrameIndex = 0;
+            currentLoopCount = 0;
+            pauseCounter = 0;
+            
+            updateButtons();
+        }
+
+        function loop(timestamp) {
+            if (!isPlaying) {
+                animationFrameId = null;
+                return;
+            }
+
+            // Calculate elapsed time
+            const elapsed = timestamp - lastFrameTime;
+            const frameDuration = 1000 / animationConfig.fps;
+
+            if (elapsed > frameDuration) {
+                // Adjust for lag, but cap it to avoid fast-forwarding too much
+                lastFrameTime = timestamp - (elapsed % frameDuration);
+                
+                drawFrame();
+            }
+
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        function drawFrame() {
+            // Safety check
+            if (currentPartIndex >= animationConfig.parts.length) {
+                // Animation totally finished
+                // Usually boot animations loop the last part indefinitely if configured,
+                // but if we run out of parts, we stop or reset.
+                // Standard behavior: if last part is done and didn't infinite loop, we just hold last frame.
+                // However, let's just loop the whole thing for preview purposes if it ends?
+                // Or stop. Let's stop.
+                stopAnimation();
+                return;
+            }
+
+            const part = animationConfig.parts[currentPartIndex];
+            
+            // If part has no images, skip it
+            if (!part.images || part.images.length === 0) {
+                currentPartIndex++;
+                return;
+            }
+
+            // Draw current frame
+            if (currentFrameIndex < part.images.length) {
+                const img = part.images[currentFrameIndex];
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#000000'; // Black background standard for boot
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, animationConfig.width, animationConfig.height);
+                
+                currentFrameIndex++;
+            } else {
+                // End of part sequence reached. Handle Pause.
+                if (part.pause > 0 && pauseCounter < part.pause) {
+                    // Hold the last frame
+                    pauseCounter++;
+                    // Redraw last frame ensures it stays visible
+                    const img = part.images[part.images.length - 1];
+                    ctx.drawImage(img, 0, 0, animationConfig.width, animationConfig.height);
+                    return; 
+                }
+
+                // Pause finished or no pause. Handle Loop.
+                // count = 0 means infinite loop
+                // count > 0 means play N times
+                
+                // Logic: 
+                // If count == 0, we reset frameIndex and keep playing forever.
+                // If count > 0, we increment loopCount. If loopCount < count, reset frameIndex. Else, next part.
+
+                pauseCounter = 0; // Reset pause for next loop or next part
+
+                if (part.count === 0) {
+                    currentFrameIndex = 0;
+                } else {
+                    currentLoopCount++;
+                    if (currentLoopCount < part.count) {
+                        currentFrameIndex = 0;
+                    } else {
+                        // Part finished completely
+                        currentPartIndex++;
+                        currentFrameIndex = 0;
+                        currentLoopCount = 0;
+                    }
+                }
+            }
+        }
+
+        // UI Helpers
+        function setLoading(isLoading, text = "Loading...") {
+            if (isLoading) {
+                loadingOverlay.classList.remove('hidden');
+                loadingOverlay.classList.add('flex');
+                loadingText.textContent = text;
+            } else {
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.classList.remove('flex');
+            }
+        }
+
+        function enableControls(enabled) {
+            btnPlay.disabled = !enabled;
+            btnPause.disabled = !enabled;
+            btnReset.disabled = !enabled;
+        }
+
+        function updateButtons() {
+            if (isPlaying) {
+                btnPlay.classList.add('opacity-50', 'cursor-not-allowed');
+                btnPause.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                btnPlay.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnPause.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // Button Listeners
+        btnPlay.addEventListener('click', startAnimation);
+        btnPause.addEventListener('click', stopAnimation);
+        btnReset.addEventListener('click', () => {
+            resetPlayer();
+            // Start automatically after reset?
+            startAnimation();
+        });
+
+    </script>
+</body>
+</html>
